@@ -1,40 +1,46 @@
 class PostModel {
-  final String id;
-  final String userId;
+  final String id; // Changed type from int to String
   final String title;
   final String content;
+  final String authorName;
+  final String userId;
   final List<String> imageUrls;
-  final DateTime createdAt;
+  final DateTime? createdAt;
+  final int commentsCount;
 
   PostModel({
     required this.id,
-    required this.userId,
     required this.title,
     required this.content,
+    required this.authorName,
+    required this.userId,
     required this.imageUrls,
-    required this.createdAt,
+    this.createdAt,
+    required this.commentsCount,
   });
 
-  // Convert Supabase Map (JSON) into a PostModel object
   factory PostModel.fromJson(Map<String, dynamic> json) {
     return PostModel(
-      id: json['id'] as String,
-      userId: json['user_id'] as String,
-      title: json['title'] as String,
-      content: json['content'] as String,
+      // Ensure the id is handled as a String, even if it comes from the DB
+      id: json['id']?.toString() ?? '',
+      title: json['title'] ?? '',
+      content: json['content'] ?? '',
+      authorName: json['author_name'] ?? 'anonymous',
+      userId: json['user_id'] ?? '',
       imageUrls: List<String>.from(json['image_urls'] ?? []),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
+      commentsCount: json['comments_count'] is int ? json['comments_count'] : 0,
     );
   }
 
-  // Convert PostModel object to Map (JSON) to save to Supabase
   Map<String, dynamic> toJson() {
     return {
       'title': title,
       'content': content,
+      'author_name': authorName,
+      'user_id': userId,
       'image_urls': imageUrls,
-      if (id.isNotEmpty) 'id': id,
-      if (userId.isNotEmpty) 'user_id': userId,
+      'comments_count': commentsCount,
     };
   }
 }

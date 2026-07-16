@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:io';
 import '../data/post_model.dart';
 import '../data/post_repository.dart';
@@ -20,20 +21,16 @@ class PostsProvider extends ChangeNotifier {
 
   final int _limit = 10;
 
-  // Fetch initial batch of posts or refresh the feed
   Future<void> refreshPosts() async {
     _isLoading = true;
     _errorMessage = null;
     _hasMore = true;
     _posts.clear();
     notifyListeners();
-
     try {
       final fetched = await _postRepository.fetchPosts(limit: _limit, offset: 0);
       _posts = fetched;
-      if (fetched.length < _limit) {
-        _hasMore = false;
-      }
+      if (fetched.length < _limit) { _hasMore = false; }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
@@ -42,22 +39,13 @@ class PostsProvider extends ChangeNotifier {
     }
   }
 
-  // Load the next page of posts for pagination
   Future<void> loadMorePosts() async {
     if (_isLoading || !_hasMore) return;
-
     _isLoading = true;
     notifyListeners();
-
     try {
-      final fetched = await _postRepository.fetchPosts(
-        limit: _limit,
-        offset: _posts.length,
-      );
-
-      if (fetched.length < _limit) {
-        _hasMore = false;
-      }
+      final fetched = await _postRepository.fetchPosts(limit: _limit, offset: _posts.length);
+      if (fetched.length < _limit) { _hasMore = false; }
       _posts.addAll(fetched);
     } catch (e) {
       _errorMessage = e.toString();
@@ -67,7 +55,6 @@ class PostsProvider extends ChangeNotifier {
     }
   }
 
-  // Handle uploading images and saving the text content as a new post
   Future<bool> addNewPost({
     required String title,
     required String content,
@@ -76,28 +63,25 @@ class PostsProvider extends ChangeNotifier {
     _isUploading = true;
     _errorMessage = null;
     notifyListeners();
-
     try {
-      // 1. Upload files to Storage if any images are selected
       List<String> uploadedUrls = [];
       if (imageFiles.isNotEmpty) {
         uploadedUrls = await _postRepository.uploadImages(imageFiles);
       }
-
-      // 2. Create the post model instance (id and user_id handled by Supabase)
+      final user = Supabase.instance.client.auth.currentUser;
+      final userId = user?.id ?? 'anonymous';
+      final emailPrefix = user?.email != null ? user!.email!.split('@')[0] : 'user';
+      final authorName = user?.userMetadata?['nickname'] ?? emailPrefix;
       final newPost = PostModel(
         id: '',
-        userId: '',
         title: title,
         content: content,
+        authorName: authorName,
+        userId: userId,
         imageUrls: uploadedUrls,
-        createdAt: DateTime.now(),
+        commentsCount: 0,
       );
-
-      // 3. Save details to database table
       await _postRepository.createPost(newPost);
-
-      // 4. Refresh the local list automatically
       await refreshPosts();
       return true;
     } catch (e) {
@@ -109,7 +93,6 @@ class PostsProvider extends ChangeNotifier {
     }
   }
 
-  // Remove a post from the database and local memory
   Future<void> removePost(String postId) async {
     try {
       await _postRepository.deletePost(postId);

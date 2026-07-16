@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-import '../../../features/auth/providers/auth_provider.dart';
-import '../providers/posts_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../reddit_post_card.dart';
+import '../../auth/presentation/login_screen.dart';
+import '../data/post_model.dart';
+import 'create_post_screen.dart';
+import 'post_detail_screen.dart';
 
 class PostsFeedScreen extends StatefulWidget {
   const PostsFeedScreen({super.key});
@@ -12,152 +14,122 @@ class PostsFeedScreen extends StatefulWidget {
 }
 
 class _PostsFeedScreenState extends State<PostsFeedScreen> {
-  final ScrollController _scrollController = ScrollController();
+  final SupabaseClient _supabase = Supabase.instance.client;
+  List<Map<String, dynamic>> _posts = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    // Fetch the initial batch of posts as soon as the screen loads
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<PostsProvider>().refreshPosts();
-    });
-
-    // Listen to scroll movements to trigger pagination
-    _scrollController.addListener(_onScroll);
+    _fetchPosts();
   }
 
-  @override
-  void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
-    super.dispose();
+  Future<void> _fetchPosts() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final List<dynamic> response = await _supabase
+          .from('posts')
+          .select('*')
+          .order('created_at', ascending: false);
+
+      setState(() {
+        _posts = List<Map<String, dynamic>>.from(response);
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading posts: $error'), backgroundColor: Colors.redAccent),
+      );
+    }
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-      context.read<PostsProvider>().loadMorePosts();
+  Future<void> _handleUpvote(int index, Map<String, dynamic> post) async {
+    final currentUpvotes = post['upvotes_count'] ?? 0;
+    final newUpvotes = currentUpvotes + 1;
+
+    setState(() => _posts[index]['upvotes_count'] = newUpvotes);
+
+    try {
+      await _supabase
+          .from('posts')
+          .update({'upvotes_count': newUpvotes})
+          .eq('id', post['id']);
+    } catch (error) {
+      setState(() => _posts[index]['upvotes_count'] = currentUpvotes);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save upvote: $error')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthStateProvider>(context);
-    final postsProvider = Provider.of<PostsProvider>(context);
-    final isLoggedIn = authProvider.user != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF030303) : const Color(0xFFDAE0E6),
       appBar: AppBar(
-        title: const Text('Community Feed'),
+        title: const Text('f/ForumFeed', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          if (isLoggedIn) ...[
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Logout',
-              onPressed: () async {
-                await authProvider.logout();
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Logged out successfully')),
-                  );
-                }
-              },
-            ),
-          ] else ...[
-            TextButton(
-              onPressed: () => context.go('/login'),
-              child: const Text('Login'),
-            ),
-            TextButton(
-              onPressed: () => context.go('/register'),
-              child: const Text('Register'),
-            ),
-          ]
+          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _fetchPosts),
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+            onPressed: () async {
+              await _supabase.auth.signOut();
+              if (!mounted) return;
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    (route) => false,
+              );
+            },
+          ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => postsProvider.refreshPosts(),
-        child: postsProvider.isLoading && postsProvider.posts.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            : postsProvider.errorMessage != null && postsProvider.posts.isEmpty
-            ? Center(child: Text('Error: ${postsProvider.errorMessage}'))
-            : postsProvider.posts.isEmpty
-            ? const Center(child: Text('No posts yet. Be the first to create one!'))
-            : ListView.builder(
-          controller: _scrollController,
-          itemCount: postsProvider.posts.length + (postsProvider.hasMore ? 1 : 0),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.deepPurpleAccent))
+          : _posts.isEmpty
+          ? Center(child: Text('No posts yet!', style: TextStyle(color: Colors.grey[600])))
+          : RefreshIndicator(
+        onRefresh: _fetchPosts,
+        child: ListView.builder(
+          itemCount: _posts.length,
           itemBuilder: (context, index) {
-            if (index == postsProvider.posts.length) {
-              return const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
+            final post = _posts[index];
 
-            final post = postsProvider.posts[index];
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: ListTile(
-                title: Text(
-                  post.title,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    Text(
-                      post.content,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (post.imageUrls.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        height: 60,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: post.imageUrls.length,
-                          itemBuilder: (context, imgIndex) {
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8.0),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: Image.network(
-                                  post.imageUrls[imgIndex],
-                                  width: 60,
-                                  height: 60,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                  const Icon(Icons.broken_image, size: 40),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ]
-                  ],
-                ),
-                trailing: isLoggedIn && post.userId == authProvider.user?.id
-                    ? IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.redAccent),
-                  onPressed: () => postsProvider.removePost(post.id),
-                )
-                    : null,
-                onTap: () {
-                  context.go('/post-detail', extra: post);
-                },
-              ),
+            // Fix: Map the DB 'username' to 'author_name' for the model
+            final postMap = Map<String, dynamic>.from(post);
+            postMap['author_name'] = post['username'] ?? 'anonymous';
+            final postModel = PostModel.fromJson(postMap);
+
+            return RedditPostCard(
+              category: post['category'] ?? 'general',
+              author: post['username'] ?? 'anonymous',
+              timeAgo: 'Just now', // Simplified for display
+              title: post['title'] ?? 'Untitled',
+              bodyPreview: post['content'] ?? '',
+              upvotes: post['upvotes_count'] ?? 0,
+              commentCount: post['comments_count'] ?? 0,
+              onUpvote: () => _handleUpvote(index, post),
+              onCommentTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => PostDetailScreen(post: postModel)),
+                ).then((shouldReload) {
+                  if (shouldReload == true) _fetchPosts();
+                });
+              },
             );
           },
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // go_router will automatically handle route guarding and bounce guests to /login
-          context.go('/create-post');
-        },
-        child: const Icon(Icons.add),
+        backgroundColor: Colors.deepPurpleAccent,
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreatePostScreen()))
+            .then((shouldReload) => shouldReload == true ? _fetchPosts() : null),
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }

@@ -6,6 +6,7 @@ import 'package:flutter_app/core/router/app_router.dart';
 import 'package:flutter_app/features/auth/providers/auth_provider.dart';
 import 'package:flutter_app/features/posts/providers/posts_provider.dart';
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

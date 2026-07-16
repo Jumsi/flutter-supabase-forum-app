@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import '../providers/posts_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -13,12 +9,19 @@ class CreatePostScreen extends StatefulWidget {
 }
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final SupabaseClient _supabase = Supabase.instance.client;
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
 
-  final List<File> _selectedImages = [];
-  final ImagePicker _picker = ImagePicker();
+  bool _isLoading = false;
+  bool _isAnonymous = false;
+  String _userNickname = 'user';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserNickname();
+  }
 
   @override
   void dispose() {
@@ -27,155 +30,183 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     super.dispose();
   }
 
-  // Pick multiple images from the device gallery
-  Future<void> _pickImages() async {
-    final List<XFile> images = await _picker.pickMultiImage();
-    if (images.isNotEmpty) {
+  /// Loads the registered nickname from Supabase metadata
+  Future<void> _loadUserNickname() async {
+    final user = _supabase.auth.currentUser;
+    if (user != null) {
       setState(() {
-        _selectedImages.addAll(images.map((xFile) => File(xFile.path)));
+        // Fetches 'nickname' from secure user metadata. Fallback is the email prefix.
+        final emailPrefix = user.email != null ? user.email!.split('@')[0] : 'user';
+        _userNickname = user.userMetadata?['nickname'] ?? emailPrefix;
       });
     }
   }
 
-  void _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+  /// Publishes the post
+  Future<void> _publishPost() async {
+    final title = _titleController.text.trim();
+    final content = _contentController.text.trim();
 
-    final postsProvider = Provider.of<PostsProvider>(context, listen: false);
+    if (title.isEmpty || content.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill out all fields')),
+      );
+      return;
+    }
 
-    final success = await postsProvider.addNewPost(
-      title: _titleController.text.trim(),
-      content: _contentController.text.trim(),
-      imageFiles: _selectedImages,
-    );
+    setState(() {
+      _isLoading = true;
+    });
 
-    if (mounted) {
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Post created successfully! 🎉'), backgroundColor: Colors.green),
-        );
-        context.go('/'); // Send back to community feed
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(postsProvider.errorMessage ?? 'Failed to create post'), backgroundColor: Colors.red),
-        );
+    try {
+      final user = _supabase.auth.currentUser;
+      final String authorToSave = _isAnonymous ? 'anonymous' : _userNickname;
+
+      // Perfectly matches your newly updated Supabase schema!
+      await _supabase.from('posts').insert({
+        'title': title,
+        'content': content,
+        'user_id': user?.id,
+        'username': authorToSave, // Saves 'anonymous' or the user's nickname
+        'image_urls': [], // Empty array for your text[] column
+      });
+
+      if (!mounted) return;
+      Navigator.pop(context, true); // Go back and trigger refresh on the feed
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error creating post: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final postsProvider = Provider.of<PostsProvider>(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Colors.deepPurpleAccent;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create New Post')),
-      body: postsProvider.isUploading
-          ? const Center(
+      appBar: AppBar(
+        title: const Text('Create New Post'),
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Uploading images and post details... Please wait.'),
-          ],
-        ),
-      )
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
+            // Title Field
+            TextField(
+              controller: _titleController,
+              decoration: InputDecoration(
+                labelText: 'Title',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Title is required' : null,
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _contentController,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'What\'s on your mind?',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
+            ),
+            const SizedBox(height: 16),
+
+            // Mind / Description Field
+            TextField(
+              controller: _contentController,
+              maxLines: 6,
+              decoration: InputDecoration(
+                labelText: "What's on your mind?",
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                validator: (val) => val == null || val.trim().isEmpty ? 'Content cannot be empty' : null,
               ),
-              const SizedBox(height: 24),
+            ),
+            const SizedBox(height: 16),
 
-              // Multi-Image Preview Row
-              Text(
-                'Attached Images (${_selectedImages.length})',
-                style: Theme.of(context).textTheme.titleSmall,
+            // NICKNAME / ANONYMOUS SLIDER
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 100,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _selectedImages.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == _selectedImages.length) {
-                      return InkWell(
-                        onTap: _pickImages,
-                        child: Container(
-                          width: 100,
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.add_a_photo, color: Colors.grey),
-                        ),
-                      );
-                    }
-
-                    return Stack(
+              child: Row(
+                children: [
+                  Icon(
+                    _isAnonymous ? Icons.visibility_off_outlined : Icons.face_rounded,
+                    color: _isAnonymous ? Colors.grey : primaryColor,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 100,
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            image: DecorationImage(
-                              image: FileImage(_selectedImages[index]),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
+                        const Text(
+                          'Post Anonymously',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        Positioned(
-                          top: 0,
-                          right: 8,
-                          child: IconButton(
-                            icon: const Icon(Icons.cancel, color: Colors.red),
-                            onPressed: () {
-                              setState(() {
-                                _selectedImages.removeAt(index);
-                              });
-                            },
-                          ),
+                        Text(
+                          _isAnonymous
+                              ? "Posting as u/anonymous"
+                              : "Posting publicly as u/$_userNickname",
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                         ),
                       ],
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  Switch(
+                    value: _isAnonymous,
+                    activeColor: primaryColor,
+                    onChanged: (value) {
+                      setState(() {
+                        _isAnonymous = value;
+                      });
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _submit,
+            ),
+            const SizedBox(height: 24),
+
+            // Submit Button
+            SizedBox(
+              height: 50,
+              child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Colors.deepPurple,
+                  backgroundColor: primaryColor,
                   foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25),
+                  ),
                 ),
-                child: const Text('Publish Post'),
+                onPressed: _isLoading ? null : _publishPost,
+                child: _isLoading
+                    ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Text(
+                  'Publish Post',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
