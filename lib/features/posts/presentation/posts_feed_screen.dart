@@ -29,13 +29,13 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final List<dynamic> response = await _supabase
+      final List<dynamic> postResponse = await _supabase
           .from('posts')
           .select('*')
           .order('created_at', ascending: false);
 
       setState(() {
-        _posts = List<Map<String, dynamic>>.from(response);
+        _posts = List<Map<String, dynamic>>.from(postResponse);
         _isLoading = false;
       });
     } catch (error) {
@@ -47,27 +47,102 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     }
   }
 
-  Future<void> _handleUpvote(int index, Map<String, dynamic> post) async {
-    final currentUpvotes = post['upvotes_count'] ?? 0;
-    final newUpvotes = currentUpvotes + 1;
-
-    setState(() => _posts[index]['upvotes_count'] = newUpvotes);
-
+  Future<void> _deletePost(String postId) async {
     try {
-      await _supabase
-          .from('posts')
-          .update({'upvotes_count': newUpvotes})
-          .eq('id', post['id']);
-    } catch (error) {
-      setState(() => _posts[index]['upvotes_count'] = currentUpvotes);
+      await _supabase.from('posts').delete().eq('id', postId);
+      _fetchPosts();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save upvote: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post deleted!')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $error')));
     }
+  }
+
+  void _showDeleteDialog(Map<String, dynamic> post) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Post'),
+        content: const Text('Are you sure you want to delete this post?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deletePost(post['id']);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog(Map<String, dynamic> post) {
+    final titleController = TextEditingController(text: post['title']);
+    final contentController = TextEditingController(text: post['content']);
+    bool isUpdating = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Edit Post'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: contentController,
+                      decoration: const InputDecoration(labelText: 'Content'),
+                      maxLines: 4,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: isUpdating ? null : () async {
+                    setDialogState(() => isUpdating = true);
+                    try {
+                      await _supabase.from('posts').update({
+                        'title': titleController.text.trim(),
+                        'content': contentController.text.trim(),
+                      }).eq('id', post['id']);
+
+                      if (!mounted) return;
+                      Navigator.pop(context);
+                      _fetchPosts();
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post updated successfully!')));
+                    } catch (error) {
+                      setDialogState(() => isUpdating = false);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $error')));
+                    }
+                  },
+                  child: isUpdating
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final userId = _supabase.auth.currentUser?.id;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF030303) : const Color(0xFFDAE0E6),
@@ -94,35 +169,80 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
           ? Center(child: Text('No posts yet!', style: TextStyle(color: Colors.grey[600])))
           : RefreshIndicator(
         onRefresh: _fetchPosts,
-        child: ListView.builder(
-          itemCount: _posts.length,
-          itemBuilder: (context, index) {
-            final post = _posts[index];
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 600),
+            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            child: ListView.builder(
+              itemCount: _posts.length,
+              itemBuilder: (context, index) {
+                final post = _posts[index];
+                final postMap = Map<String, dynamic>.from(post);
+                postMap['author_name'] = post['username'] ?? 'anonymous';
+                final postModel = PostModel.fromJson(postMap);
 
-            // Fix: Map the DB 'username' to 'author_name' for the model
-            final postMap = Map<String, dynamic>.from(post);
-            postMap['author_name'] = post['username'] ?? 'anonymous';
-            final postModel = PostModel.fromJson(postMap);
+                final isOwner = post['user_id'] == userId;
 
-            return RedditPostCard(
-              category: post['category'] ?? 'general',
-              author: post['username'] ?? 'anonymous',
-              timeAgo: 'Just now', // Simplified for display
-              title: post['title'] ?? 'Untitled',
-              bodyPreview: post['content'] ?? '',
-              upvotes: post['upvotes_count'] ?? 0,
-              commentCount: post['comments_count'] ?? 0,
-              onUpvote: () => _handleUpvote(index, post),
-              onCommentTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => PostDetailScreen(post: postModel)),
-                ).then((shouldReload) {
-                  if (shouldReload == true) _fetchPosts();
-                });
+                return Stack(
+                  children: [
+                    RedditPostCard(
+                      category: post['category'] ?? 'general',
+                      author: post['username'] ?? 'anonymous',
+                      timeAgo: 'Just now',
+                      title: post['title'] ?? 'Untitled',
+                      bodyPreview: post['content'] ?? '',
+                      commentCount: post['comments_count'] ?? 0,
+                      onCommentTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => PostDetailScreen(post: postModel)),
+                        ).then((shouldReload) {
+                          if (shouldReload == true) _fetchPosts();
+                        });
+                      },
+                    ),
+                    if (isOwner)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: PopupMenuButton<String>(
+                          icon: Icon(Icons.more_horiz, color: isDark ? Colors.white54 : Colors.black54),
+                          onSelected: (value) {
+                            if (value == 'edit') {
+                              _showEditDialog(post);
+                            } else if (value == 'delete') {
+                              _showDeleteDialog(post);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Edit'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete, size: 20, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete', style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
               },
-            );
-          },
+            ),
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton(

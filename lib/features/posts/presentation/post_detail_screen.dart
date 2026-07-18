@@ -15,9 +15,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final _commentController = TextEditingController();
 
-  late int _upvotes;
-  int _myVote = 0;
-
   List<Map<String, dynamic>> _comments = [];
   bool _isLoadingComments = true;
   bool _isSubmittingComment = false;
@@ -25,8 +22,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
-    // Assuming post model has upvotesCount. Update if property name differs.
-    _upvotes = 0;
     _fetchComments();
   }
 
@@ -95,36 +90,86 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  Future<void> _handleVote(int voteType) async {
-    final originalUpvotes = _upvotes;
-    final originalMyVote = _myVote;
-
-    setState(() {
-      if (_myVote == voteType) {
-        _upvotes -= voteType;
-        _myVote = 0;
-      } else {
-        int diff = voteType - _myVote;
-        _upvotes += diff;
-        _myVote = voteType;
-      }
-    });
-
+  Future<void> _deleteComment(String commentId) async {
     try {
-      await _supabase
-          .from('posts')
-          .update({'upvotes_count': _upvotes})
-          .eq('id', widget.post.id);
+      await _supabase.from('comments').delete().eq('id', commentId);
+
+      final newCount = (_comments.length - 1).clamp(0, 99999);
+      await _supabase.from('posts').update({'comments_count': newCount}).eq('id', widget.post.id);
+
+      _fetchComments();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comment deleted!')));
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _myVote = originalMyVote;
-        _upvotes = originalUpvotes;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save vote: $error')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $error')));
     }
+  }
+
+  void _showDeleteCommentDialog(Map<String, dynamic> comment) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Comment'),
+        content: const Text('Are you sure you want to delete this comment?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteComment(comment['id']);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditCommentDialog(Map<String, dynamic> comment) {
+    final contentController = TextEditingController(text: comment['content']);
+    bool isUpdating = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Edit Comment'),
+              content: TextField(
+                controller: contentController,
+                decoration: const InputDecoration(labelText: 'Comment'),
+                maxLines: 3,
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: isUpdating ? null : () async {
+                    setDialogState(() => isUpdating = true);
+                    try {
+                      await _supabase.from('comments').update({
+                        'content': contentController.text.trim(),
+                      }).eq('id', comment['id']);
+
+                      if (!mounted) return;
+                      Navigator.pop(context);
+                      _fetchComments();
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comment updated!')));
+                    } catch (error) {
+                      setDialogState(() => isUpdating = false);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $error')));
+                    }
+                  },
+                  child: isUpdating
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Save'),
+                ),
+              ],
+            );
+          }
+      ),
+    );
   }
 
   String _getTimeDisplay(dynamic createdAt) {
@@ -148,6 +193,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final primaryTextColor = isDark ? const Color(0xFFD7DADC) : const Color(0xFF1C1C1C);
     final secondaryTextColor = isDark ? const Color(0xFF818384) : const Color(0xFF787C7E);
     final primaryColor = Colors.deepPurpleAccent;
+    final currentUserId = _supabase.auth.currentUser?.id;
 
     return PopScope(
       canPop: false,
@@ -158,7 +204,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       child: Scaffold(
         backgroundColor: backgroundColor,
         appBar: AppBar(
-          title: const Text('f/Post Details'),
+          title: const Text('Post Details'),
           centerTitle: false,
           elevation: 0.5,
           leading: IconButton(
@@ -195,7 +241,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               Text("f/general", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryTextColor)),
                               Expanded(
                                 child: Text(
-                                  " • Posted by u/${widget.post.authorName ?? 'anonymous'} • ${_getTimeDisplay(widget.post.createdAt)}",
+                                  " • Posted by u/${widget.post.authorName} • ${_getTimeDisplay(widget.post.createdAt)}",
                                   style: TextStyle(fontSize: 12, color: secondaryTextColor, overflow: TextOverflow.ellipsis),
                                 ),
                               ),
@@ -205,44 +251,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           Text(widget.post.title, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: primaryTextColor, height: 1.3)),
                           const SizedBox(height: 14),
                           Text(widget.post.content, style: TextStyle(fontSize: 15, color: primaryTextColor, height: 1.5)),
-                          const SizedBox(height: 20),
-                          Divider(color: borderColor, height: 1),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: isDark ? const Color(0xFF272729) : const Color(0xFFF6F7F8),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                child: Row(
-                                  children: [
-                                    IconButton(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero,
-                                      icon: Icon(Icons.arrow_upward_rounded, size: 22, color: _myVote == 1 ? Colors.orange : secondaryTextColor),
-                                      onPressed: () => _handleVote(1),
-                                    ),
-                                    Text(
-                                      '$_upvotes',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: _myVote == 1 ? Colors.orange : _myVote == -1 ? Colors.blue : primaryTextColor,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: EdgeInsets.zero,
-                                      icon: Icon(Icons.arrow_downward_rounded, size: 22, color: _myVote == -1 ? Colors.blue : secondaryTextColor),
-                                      onPressed: () => _handleVote(-1),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
                       ),
                     ),
@@ -270,7 +278,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                   children: [
                                     Icon(Icons.chat_bubble_outline_rounded, color: secondaryTextColor, size: 36),
                                     const SizedBox(height: 8),
-                                    Text('No comments yet. Be the first to share your thoughts!', textAlign: TextAlign.center, style: TextStyle(color: secondaryTextColor, fontSize: 13)),
+                                    Text('No comments yet.', textAlign: TextAlign.center, style: TextStyle(color: secondaryTextColor, fontSize: 13)),
                                   ],
                                 ),
                               ),
@@ -283,27 +291,70 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               separatorBuilder: (_, __) => Divider(color: borderColor, height: 24),
                               itemBuilder: (_, index) {
                                 final comment = _comments[index];
-                                return Column(
+                                final isOwner = comment['user_id'] == currentUserId;
+
+                                return Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 9,
-                                          backgroundColor: Colors.grey[400],
-                                          child: Text(
-                                            comment['username']?.isNotEmpty == true ? comment['username'][0].toUpperCase() : 'U',
-                                            style: const TextStyle(fontSize: 8, color: Colors.white),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              CircleAvatar(
+                                                radius: 9,
+                                                backgroundColor: Colors.grey[400],
+                                                child: Text(
+                                                  comment['username']?.isNotEmpty == true ? comment['username'][0].toUpperCase() : 'U',
+                                                  style: const TextStyle(fontSize: 8, color: Colors.white),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text("u/${comment['username'] ?? 'anonymous'}", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryTextColor)),
+                                              const SizedBox(width: 6),
+                                              Text("• ${_getTimeDisplay(comment['created_at'])}", style: TextStyle(fontSize: 11, color: secondaryTextColor)),
+                                            ],
                                           ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text("u/${comment['username'] ?? 'anonymous'}", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryTextColor)),
-                                        const SizedBox(width: 6),
-                                        Text("• ${_getTimeDisplay(comment['created_at'])}", style: TextStyle(fontSize: 11, color: secondaryTextColor)),
-                                      ],
+                                          const SizedBox(height: 6),
+                                          Text(comment['content'] ?? '', style: TextStyle(fontSize: 14, color: primaryTextColor, height: 1.3)),
+                                        ],
+                                      ),
                                     ),
-                                    const SizedBox(height: 6),
-                                    Text(comment['content'] ?? '', style: TextStyle(fontSize: 14, color: primaryTextColor, height: 1.3)),
+                                    if (isOwner)
+                                      PopupMenuButton<String>(
+                                        padding: EdgeInsets.zero,
+                                        icon: Icon(Icons.more_vert, size: 18, color: secondaryTextColor),
+                                        onSelected: (value) {
+                                          if (value == 'edit') {
+                                            _showEditCommentDialog(comment);
+                                          } else if (value == 'delete') {
+                                            _showDeleteCommentDialog(comment);
+                                          }
+                                        },
+                                        itemBuilder: (context) => [
+                                          const PopupMenuItem(
+                                            value: 'edit',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.edit, size: 18),
+                                                SizedBox(width: 8),
+                                                Text('Edit'),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.delete, size: 18, color: Colors.red),
+                                                SizedBox(width: 8),
+                                                Text('Delete', style: TextStyle(color: Colors.red)),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                   ],
                                 );
                               },

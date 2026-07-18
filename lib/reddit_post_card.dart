@@ -6,9 +6,7 @@ class RedditPostCard extends StatelessWidget {
   final String timeAgo;
   final String title;
   final String bodyPreview;
-  final int upvotes;
   final int commentCount;
-  final VoidCallback? onUpvote;
   final VoidCallback? onCommentTap;
 
   const RedditPostCard({
@@ -18,9 +16,7 @@ class RedditPostCard extends StatelessWidget {
     required this.timeAgo,
     required this.title,
     required this.bodyPreview,
-    required this.upvotes,
     required this.commentCount,
-    this.onUpvote,
     this.onCommentTap,
   });
 
@@ -117,53 +113,12 @@ class RedditPostCard extends StatelessWidget {
               Divider(color: borderColor, height: 1),
               const SizedBox(height: 8),
 
-              // 4. ACTION FOOTER (Upvotes & Comments)
-              Row(
-                children: [
-                  // Upvotes cluster
-                  Container(
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF272729) : const Color(0xFFF6F7F8),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.arrow_upward_rounded, size: 18),
-                          color: secondaryTextColor,
-                          onPressed: onUpvote,
-                        ),
-                        Text(
-                          '$upvotes',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: primaryTextColor,
-                          ),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.arrow_downward_rounded, size: 18),
-                          color: secondaryTextColor,
-                          onPressed: () {},
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-
-                  // Comment Button
-                  _buildFooterButton(
-                    context,
-                    icon: Icons.mode_comment_outlined,
-                    label: "$commentCount Comments",
-                    onTap: onCommentTap,
-                  ),
-                ],
+              // 4. ACTION FOOTER (Only Comments)
+              _buildFooterButton(
+                context,
+                icon: Icons.mode_comment_outlined,
+                label: "$commentCount Comments",
+                onTap: onCommentTap,
               ),
             ],
           ),
@@ -191,6 +146,7 @@ class RedditPostCard extends StatelessWidget {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 16, color: secondaryTextColor),
             const SizedBox(width: 6),

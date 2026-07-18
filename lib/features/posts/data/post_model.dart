@@ -1,5 +1,5 @@
 class PostModel {
-  final String id; // Changed type from int to String
+  final String id;
   final String title;
   final String content;
   final String authorName;
@@ -21,7 +21,6 @@ class PostModel {
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
     return PostModel(
-      // Ensure the id is handled as a String, even if it comes from the DB
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? '',
       content: json['content'] ?? '',

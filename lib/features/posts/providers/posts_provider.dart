@@ -72,6 +72,7 @@ class PostsProvider extends ChangeNotifier {
       final userId = user?.id ?? 'anonymous';
       final emailPrefix = user?.email != null ? user!.email!.split('@')[0] : 'user';
       final authorName = user?.userMetadata?['nickname'] ?? emailPrefix;
+
       final newPost = PostModel(
         id: '',
         title: title,
@@ -81,6 +82,7 @@ class PostsProvider extends ChangeNotifier {
         imageUrls: uploadedUrls,
         commentsCount: 0,
       );
+
       await _postRepository.createPost(newPost);
       await refreshPosts();
       return true;
