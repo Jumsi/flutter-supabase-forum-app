@@ -7,6 +7,7 @@ class RedditPostCard extends StatelessWidget {
   final String title;
   final String bodyPreview;
   final int commentCount;
+  final List<String> imageUrls;
   final VoidCallback? onCommentTap;
 
   const RedditPostCard({
@@ -17,6 +18,7 @@ class RedditPostCard extends StatelessWidget {
     required this.title,
     required this.bodyPreview,
     required this.commentCount,
+    this.imageUrls = const [], // Default to an empty list
     this.onCommentTap,
   });
 
@@ -95,25 +97,33 @@ class RedditPostCard extends StatelessWidget {
                   height: 1.3,
                 ),
               ),
-              const SizedBox(height: 6),
 
               // 3. BODY PREVIEW
-              Text(
-                bodyPreview,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: secondaryTextColor,
-                  height: 1.4,
+              if (bodyPreview.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  bodyPreview,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: secondaryTextColor,
+                    height: 1.4,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
+              ],
 
+              // 4. IMAGE GALLERY
+              if (imageUrls.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _FeedImageGallery(imageUrls: imageUrls),
+              ],
+
+              const SizedBox(height: 12),
               Divider(color: borderColor, height: 1),
               const SizedBox(height: 8),
 
-              // 4. ACTION FOOTER (Only Comments)
+              // 5. ACTION FOOTER (Only Comments)
               _buildFooterButton(
                 context,
                 icon: Icons.mode_comment_outlined,
@@ -160,6 +170,56 @@ class RedditPostCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Image gallery logic moved inside the card component
+class _FeedImageGallery extends StatelessWidget {
+  final List<String> imageUrls;
+
+  const _FeedImageGallery({required this.imageUrls});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 140,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: imageUrls.length,
+        itemBuilder: (context, index) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                imageUrls[index],
+                fit: BoxFit.cover,
+                width: 180,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    width: 180,
+                    color: Colors.black12,
+                    child: const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 180,
+                  color: Colors.black12,
+                  child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

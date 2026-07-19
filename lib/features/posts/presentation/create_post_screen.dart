@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CreatePostScreen extends StatefulWidget {
@@ -12,10 +14,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
 
   bool _isLoading = false;
   bool _isAnonymous = false;
   String _userNickname = 'user';
+  List<XFile> _selectedImages = []; // Stores the selected images
 
   @override
   void initState() {
@@ -42,7 +46,32 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
   }
 
-  /// Publishes the post
+  /// Opens gallery to pick multiple images
+  Future<void> _pickImages() async {
+    try {
+      final List<XFile> pickedImages = await _picker.pickMultiImage(
+        imageQuality: 70, // Compresses image to save storage space and bandwidth
+      );
+      if (pickedImages.isNotEmpty) {
+        setState(() {
+          _selectedImages.addAll(pickedImages);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking images: $e')),
+      );
+    }
+  }
+
+  /// Removes an image from the preview list before uploading
+  void _removeImage(int index) {
+    setState(() {
+      _selectedImages.removeAt(index);
+    });
+  }
+
+  /// Publishes the post with images
   Future<void> _publishPost() async {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
@@ -61,14 +90,35 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     try {
       final user = _supabase.auth.currentUser;
       final String authorToSave = _isAnonymous ? 'anonymous' : _userNickname;
+      List<String> uploadedUrls = [];
 
-      // Perfectly matches your newly updated Supabase schema!
+      // 1. Upload each selected image to Supabase Storage
+      for (XFile image in _selectedImages) {
+        final file = File(image.path);
+        // Create a unique file name
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
+        final filePath = 'public/$fileName';
+
+        await _supabase.storage.from('post_images').upload(
+          filePath,
+          file,
+        );
+
+        // Get the public URL for the uploaded image
+        final String publicUrl = _supabase.storage
+            .from('post_images')
+            .getPublicUrl(filePath);
+
+        uploadedUrls.add(publicUrl);
+      }
+
+      // 2. Save the post to the database along with the image URLs
       await _supabase.from('posts').insert({
         'title': title,
         'content': content,
         'user_id': user?.id,
-        'username': authorToSave, // Saves 'anonymous' or the user's nickname
-        'image_urls': [], // Empty array for your text[] column
+        'username': authorToSave,
+        'image_urls': uploadedUrls, // Save the array of public URLs
       });
 
       if (!mounted) return;
@@ -130,6 +180,72 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Image Picker Button
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _pickImages,
+                icon: Icon(Icons.add_photo_alternate, color: primaryColor),
+                label: Text(
+                  'Add Images',
+                  style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  backgroundColor: primaryColor.withOpacity(0.1),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+
+            // Image Preview Grid
+            if (_selectedImages.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              GridView.builder(
+                shrinkWrap: true, // Needed because it's inside a SingleChildScrollView
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                ),
+                itemCount: _selectedImages.length,
+                itemBuilder: (context, index) {
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(_selectedImages[index].path),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: () => _removeImage(index),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close, size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+
+            const SizedBox(height: 24),
 
             // NICKNAME / ANONYMOUS SLIDER
             Container(

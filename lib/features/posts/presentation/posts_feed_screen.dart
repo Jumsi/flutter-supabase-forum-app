@@ -183,6 +183,9 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
 
                 final isOwner = post['user_id'] == userId;
 
+                // Extract image URLs safely
+                final List<String> imageUrls = List<String>.from(post['image_urls'] ?? []);
+
                 return Stack(
                   children: [
                     RedditPostCard(
@@ -192,6 +195,7 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                       title: post['title'] ?? 'Untitled',
                       bodyPreview: post['content'] ?? '',
                       commentCount: post['comments_count'] ?? 0,
+                      imageUrls: imageUrls, // Passed directly to the card
                       onCommentTap: () {
                         Navigator.push(
                           context,
@@ -203,8 +207,8 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                     ),
                     if (isOwner)
                       Positioned(
-                        top: 12,
-                        right: 12,
+                        top: 18, // Adjusted slightly so it aligns with the padding of the card
+                        right: 24, // Adjusted slightly for inner card margin
                         child: PopupMenuButton<String>(
                           icon: Icon(Icons.more_horiz, color: isDark ? Colors.white54 : Colors.black54),
                           onSelected: (value) {
