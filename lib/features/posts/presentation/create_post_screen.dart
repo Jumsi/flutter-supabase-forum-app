@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data'; // Replaced dart:io with this for Uint8List
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -92,16 +92,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       final String authorToSave = _isAnonymous ? 'anonymous' : _userNickname;
       List<String> uploadedUrls = [];
 
-      // 1. Upload each selected image to Supabase Storage
+      // 1. Upload each selected image to Supabase Storage using bytes for Web support
       for (XFile image in _selectedImages) {
-        final file = File(image.path);
+        final bytes = await image.readAsBytes();
+        final fileExt = image.name.split('.').last;
         // Create a unique file name
         final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
         final filePath = 'public/$fileName';
 
-        await _supabase.storage.from('post_images').upload(
+        await _supabase.storage.from('post_images').uploadBinary(
           filePath,
-          file,
+          bytes,
+          fileOptions: FileOptions(contentType: 'image/$fileExt'),
         );
 
         // Get the public URL for the uploaded image
@@ -219,9 +221,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          File(_selectedImages[index].path),
-                          fit: BoxFit.cover,
+                        child: FutureBuilder<Uint8List>(
+                          future: _selectedImages[index].readAsBytes(),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              return Image.memory(
+                                snapshot.data!,
+                                fit: BoxFit.cover,
+                              );
+                            }
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          },
                         ),
                       ),
                       Positioned(
