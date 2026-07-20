@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../reddit_post_card.dart';
-import '../../auth/presentation/login_screen.dart';
 import '../data/post_model.dart';
-import 'create_post_screen.dart';
-import 'post_detail_screen.dart';
+import '../providers/posts_provider.dart'; // Adjust path based on your exact file structure
 
 class PostsFeedScreen extends StatefulWidget {
   const PostsFeedScreen({super.key});
@@ -14,44 +14,38 @@ class PostsFeedScreen extends StatefulWidget {
 }
 
 class _PostsFeedScreenState extends State<PostsFeedScreen> {
+  final ScrollController _scrollController = ScrollController();
   final SupabaseClient _supabase = Supabase.instance.client;
-  List<Map<String, dynamic>> _posts = [];
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchPosts();
+    // 1. Initial fetch managed by the PostsProvider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PostsProvider>().refreshPosts();
+    });
+
+    // 2. Setup scroll listener to manage infinite pagination
+    _scrollController.addListener(_onScroll);
   }
 
-  Future<void> _fetchPosts() async {
-    if (!mounted) return;
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
 
-    try {
-      // UPDATED: Added comments(count) to the select query
-      final List<dynamic> postResponse = await _supabase
-          .from('posts')
-          .select('*, comments(count)')
-          .order('created_at', ascending: false);
-
-      setState(() {
-        _posts = List<Map<String, dynamic>>.from(postResponse);
-        _isLoading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading posts: $error'), backgroundColor: Colors.redAccent),
-      );
+  void _onScroll() {
+    // Triggers when user scrolls within 200 pixels of the bottom
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      context.read<PostsProvider>().loadMorePosts();
     }
   }
 
   Future<void> _deletePost(String postId) async {
     try {
-      await _supabase.from('posts').delete().eq('id', postId);
-      _fetchPosts();
+      await context.read<PostsProvider>().removePost(postId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post deleted!')));
     } catch (error) {
@@ -60,18 +54,18 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     }
   }
 
-  void _showDeleteDialog(Map<String, dynamic> post) {
+  void _showDeleteDialog(PostModel post) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Post'),
         content: const Text('Are you sure you want to delete this post?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => context.pop(), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              _deletePost(post['id']);
+              context.pop();
+              _deletePost(post.id);
             },
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
@@ -80,9 +74,9 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     );
   }
 
-  void _showEditDialog(Map<String, dynamic> post) {
-    final titleController = TextEditingController(text: post['title']);
-    final contentController = TextEditingController(text: post['content']);
+  void _showEditDialog(PostModel post) {
+    final titleController = TextEditingController(text: post.title);
+    final contentController = TextEditingController(text: post.content);
     bool isUpdating = false;
 
     showDialog(
@@ -109,19 +103,20 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                TextButton(onPressed: () => context.pop(), child: const Text('Cancel')),
                 ElevatedButton(
                   onPressed: isUpdating ? null : () async {
                     setDialogState(() => isUpdating = true);
                     try {
+                      // Directly updating title and body via client, then refreshing global provider state
                       await _supabase.from('posts').update({
                         'title': titleController.text.trim(),
                         'content': contentController.text.trim(),
-                      }).eq('id', post['id']);
+                      }).eq('id', post.id);
 
                       if (!mounted) return;
-                      Navigator.pop(context);
-                      _fetchPosts();
+                      context.pop();
+                      context.read<PostsProvider>().refreshPosts();
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post updated successfully!')));
                     } catch (error) {
                       setDialogState(() => isUpdating = false);
@@ -145,70 +140,80 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final userId = _supabase.auth.currentUser?.id;
 
+    // 3. Keep an active watch on your PostsProvider state
+    final postsProvider = context.watch<PostsProvider>();
+    final posts = postsProvider.posts;
+
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF030303) : const Color(0xFFDAE0E6),
       appBar: AppBar(
         title: const Text('f/ForumFeed', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _fetchPosts),
           IconButton(
-            icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
-            onPressed: () async {
-              await _supabase.auth.signOut();
-              if (!mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-                    (route) => false,
-              );
-            },
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: () => postsProvider.refreshPosts(),
           ),
+          // UPDATED: Dynamic Auth Actions for Public and Private users
+          if (userId != null) ...[
+            IconButton(
+              icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+              onPressed: () async {
+                await _supabase.auth.signOut();
+                if (!mounted) return;
+                context.go('/login');
+              },
+            ),
+          ] else ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: TextButton.icon(
+                icon: const Icon(Icons.login_rounded, size: 20, color: Colors.deepPurpleAccent),
+                label: const Text('Login', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurpleAccent)),
+                onPressed: () => context.go('/login'),
+              ),
+            ),
+          ],
         ],
       ),
-      body: _isLoading
+      body: postsProvider.isLoading && posts.isEmpty
           ? const Center(child: CircularProgressIndicator(color: Colors.deepPurpleAccent))
-          : _posts.isEmpty
+          : posts.isEmpty
           ? Center(child: Text('No posts yet!', style: TextStyle(color: Colors.grey[600])))
           : RefreshIndicator(
-        onRefresh: _fetchPosts,
+        onRefresh: () => postsProvider.refreshPosts(),
         child: Center(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 600),
             padding: const EdgeInsets.symmetric(horizontal: 12.0),
             child: ListView.builder(
-              itemCount: _posts.length,
+              controller: _scrollController, // Attach the pagination controller
+              itemCount: posts.length + (postsProvider.hasMore ? 1 : 0),
               itemBuilder: (context, index) {
-                final post = _posts[index];
-                final postMap = Map<String, dynamic>.from(post);
-                postMap['author_name'] = post['username'] ?? 'anonymous';
-                final postModel = PostModel.fromJson(postMap);
-
-                final isOwner = post['user_id'] == userId;
-
-                // Extract image URLs safely
-                final List<String> imageUrls = List<String>.from(post['image_urls'] ?? []);
-
-                // UPDATED: Dynamically extract the comment count from the nested Supabase relation
-                int dynamicCommentCount = 0;
-                if (post['comments'] != null && (post['comments'] as List).isNotEmpty) {
-                  dynamicCommentCount = post['comments'][0]['count'] as int;
+                // Render a pagination spinner at the bottom slot if more entries exist
+                if (index == posts.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 3)),
+                  );
                 }
+
+                // Clean architecture: Post data is already structured inside a PostModel!
+                final post = posts[index];
+                final isOwner = post.userId == userId;
 
                 return Stack(
                   children: [
                     RedditPostCard(
-                      category: post['category'] ?? 'general',
-                      author: post['username'] ?? 'anonymous',
+                      category: 'general',
+                      author: post.authorName,
                       timeAgo: 'Just now',
-                      title: post['title'] ?? 'Untitled',
-                      bodyPreview: post['content'] ?? '',
-                      commentCount: dynamicCommentCount, // UPDATED: Use the parsed dynamic count
-                      imageUrls: imageUrls,
+                      title: post.title,
+                      bodyPreview: post.content,
+                      commentCount: post.commentsCount,
+                      imageUrls: post.imageUrls,
                       onCommentTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => PostDetailScreen(post: postModel)),
-                        ).then((shouldReload) {
-                          if (shouldReload == true) _fetchPosts();
+                        context.push('/post-detail', extra: post).then((_) {
+                          postsProvider.refreshPosts();
                         });
                       },
                     ),
@@ -258,8 +263,9 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.deepPurpleAccent,
-        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CreatePostScreen()))
-            .then((shouldReload) => shouldReload == true ? _fetchPosts() : null),
+        onPressed: () => context.push('/create-post').then((_) {
+          postsProvider.refreshPosts();
+        }),
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );

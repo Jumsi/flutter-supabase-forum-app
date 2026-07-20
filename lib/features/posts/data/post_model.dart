@@ -24,7 +24,7 @@ class PostModel {
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? '',
       content: json['content'] ?? '',
-      authorName: json['author_name'] ?? 'anonymous',
+      authorName: json['username'] ?? json['author_name'] ?? 'anonymous',
       userId: json['user_id'] ?? '',
       imageUrls: List<String>.from(json['image_urls'] ?? []),
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,

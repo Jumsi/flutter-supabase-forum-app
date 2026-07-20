@@ -1,7 +1,10 @@
-import 'dart:typed_data'; // Replaced dart:io with this for Uint8List
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../providers/posts_provider.dart'; // Adjust path as needed
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({super.key});
@@ -19,7 +22,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   bool _isLoading = false;
   bool _isAnonymous = false;
   String _userNickname = 'user';
-  List<XFile> _selectedImages = []; // Stores the selected images
+  final List<XFile> _selectedImages = [];
 
   @override
   void initState() {
@@ -34,23 +37,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     super.dispose();
   }
 
-  /// Loads the registered nickname from Supabase metadata
   Future<void> _loadUserNickname() async {
     final user = _supabase.auth.currentUser;
     if (user != null) {
       setState(() {
-        // Fetches 'nickname' from secure user metadata. Fallback is the email prefix.
         final emailPrefix = user.email != null ? user.email!.split('@')[0] : 'user';
         _userNickname = user.userMetadata?['nickname'] ?? emailPrefix;
       });
     }
   }
 
-  /// Opens gallery to pick multiple images
   Future<void> _pickImages() async {
     try {
       final List<XFile> pickedImages = await _picker.pickMultiImage(
-        imageQuality: 70, // Compresses image to save storage space and bandwidth
+        imageQuality: 70,
       );
       if (pickedImages.isNotEmpty) {
         setState(() {
@@ -64,14 +64,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
   }
 
-  /// Removes an image from the preview list before uploading
   void _removeImage(int index) {
     setState(() {
       _selectedImages.removeAt(index);
     });
   }
 
-  /// Publishes the post with images
   Future<void> _publishPost() async {
     final title = _titleController.text.trim();
     final content = _contentController.text.trim();
@@ -87,58 +85,28 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       _isLoading = true;
     });
 
-    try {
-      final user = _supabase.auth.currentUser;
-      final String authorToSave = _isAnonymous ? 'anonymous' : _userNickname;
-      List<String> uploadedUrls = [];
+    final String authorToSave = _isAnonymous ? 'anonymous' : _userNickname;
 
-      // 1. Upload each selected image to Supabase Storage using bytes for Web support
-      for (XFile image in _selectedImages) {
-        final bytes = await image.readAsBytes();
-        final fileExt = image.name.split('.').last;
-        // Create a unique file name
-        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
-        final filePath = 'public/$fileName';
+    // Delegate the upload and database insertion to the Provider
+    final success = await context.read<PostsProvider>().addNewPost(
+      title: title,
+      content: content,
+      imageFiles: _selectedImages,
+      authorName: authorToSave, // Pass the chosen name down
+    );
 
-        await _supabase.storage.from('post_images').uploadBinary(
-          filePath,
-          bytes,
-          fileOptions: FileOptions(contentType: 'image/$fileExt'),
-        );
-
-        // Get the public URL for the uploaded image
-        final String publicUrl = _supabase.storage
-            .from('post_images')
-            .getPublicUrl(filePath);
-
-        uploadedUrls.add(publicUrl);
-      }
-
-      // 2. Save the post to the database along with the image URLs
-      await _supabase.from('posts').insert({
-        'title': title,
-        'content': content,
-        'user_id': user?.id,
-        'username': authorToSave,
-        'image_urls': uploadedUrls, // Save the array of public URLs
+    if (success && mounted) {
+      context.pop(true); // go_router way to pop and trigger feed refresh
+    } else if (mounted) {
+      setState(() {
+        _isLoading = false;
       });
-
-      if (!mounted) return;
-      Navigator.pop(context, true); // Go back and trigger refresh on the feed
-    } catch (error) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error creating post: $error'),
+          content: Text(context.read<PostsProvider>().errorMessage ?? 'Error creating post'),
           backgroundColor: Colors.redAccent,
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
     }
   }
 
@@ -157,7 +125,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Title Field
             TextField(
               controller: _titleController,
               decoration: InputDecoration(
@@ -168,8 +135,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Mind / Description Field
             TextField(
               controller: _contentController,
               maxLines: 6,
@@ -182,8 +147,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Image Picker Button
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
@@ -202,12 +165,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 ),
               ),
             ),
-
-            // Image Preview Grid
             if (_selectedImages.isNotEmpty) ...[
               const SizedBox(height: 16),
               GridView.builder(
-                shrinkWrap: true, // Needed because it's inside a SingleChildScrollView
+                shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
@@ -256,10 +217,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 },
               ),
             ],
-
             const SizedBox(height: 24),
-
-            // NICKNAME / ANONYMOUS SLIDER
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
@@ -306,8 +264,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Submit Button
             SizedBox(
               height: 50,
               child: ElevatedButton(

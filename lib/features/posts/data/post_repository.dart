@@ -1,5 +1,5 @@
+import 'package:image_picker/image_picker.dart'; // Replaced dart:io with this for Web compatibility
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:io';
 import 'post_model.dart';
 
 class PostRepository {
@@ -26,21 +26,28 @@ class PostRepository {
     await _supabase.from('posts').delete().eq('id', postId);
   }
 
-  // Upload multiple image files to Supabase Storage and return their public URLs
-  Future<List<String>> uploadImages(List<File> images) async {
+  // Upload multiple image files to Supabase Storage using bytes (Web Safe) and return their public URLs
+  Future<List<String>> uploadImages(List<XFile> images) async {
     List<String> imageUrls = [];
 
     for (var image in images) {
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.path.split('/').last}';
+      // 1. Read file as bytes to prevent dart:io crashes on Web/GitHub Pages
+      final bytes = await image.readAsBytes();
+      final fileExt = image.name.split('.').last;
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
 
-      // Upload file to the 'posts' bucket
-      await _supabase.storage.from('posts').upload(
+      // 2. Upload file bytes to the 'posts' storage bucket using uploadBinary
+      await _supabase.storage.from('posts').uploadBinary(
         fileName,
-        image,
-        fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+        bytes,
+        fileOptions: FileOptions(
+          cacheControl: '3600',
+          upsert: false,
+          contentType: 'image/$fileExt',
+        ),
       );
 
-      // Extract public web link
+      // 3. Extract public web link
       final String publicUrl = _supabase.storage.from('posts').getPublicUrl(fileName);
       imageUrls.add(publicUrl);
     }
