@@ -29,9 +29,10 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // UPDATED: Added comments(count) to the select query
       final List<dynamic> postResponse = await _supabase
           .from('posts')
-          .select('*')
+          .select('*, comments(count)')
           .order('created_at', ascending: false);
 
       setState(() {
@@ -186,6 +187,12 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                 // Extract image URLs safely
                 final List<String> imageUrls = List<String>.from(post['image_urls'] ?? []);
 
+                // UPDATED: Dynamically extract the comment count from the nested Supabase relation
+                int dynamicCommentCount = 0;
+                if (post['comments'] != null && (post['comments'] as List).isNotEmpty) {
+                  dynamicCommentCount = post['comments'][0]['count'] as int;
+                }
+
                 return Stack(
                   children: [
                     RedditPostCard(
@@ -194,8 +201,8 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                       timeAgo: 'Just now',
                       title: post['title'] ?? 'Untitled',
                       bodyPreview: post['content'] ?? '',
-                      commentCount: post['comments_count'] ?? 0,
-                      imageUrls: imageUrls, // Passed directly to the card
+                      commentCount: dynamicCommentCount, // UPDATED: Use the parsed dynamic count
+                      imageUrls: imageUrls,
                       onCommentTap: () {
                         Navigator.push(
                           context,
@@ -207,8 +214,8 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                     ),
                     if (isOwner)
                       Positioned(
-                        top: 18, // Adjusted slightly so it aligns with the padding of the card
-                        right: 24, // Adjusted slightly for inner card margin
+                        top: 18,
+                        right: 24,
                         child: PopupMenuButton<String>(
                           icon: Icon(Icons.more_horiz, color: isDark ? Colors.white54 : Colors.black54),
                           onSelected: (value) {
