@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-import 'package:flutter_app/features/auth/providers/auth_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_app/features/auth/presentation/login_screen.dart';
 import 'package:flutter_app/features/auth/presentation/register_screen.dart';
 import 'package:flutter_app/features/posts/presentation/posts_feed_screen.dart';
@@ -12,9 +11,10 @@ import 'package:flutter_app/features/posts/data/post_model.dart';
 class AppRouter {
   static final GoRouter router = GoRouter(
     initialLocation: '/',
+    // 💡 Listens to Supabase Auth state changes (login, logout, token refresh)
+    refreshListenable: _AuthStateNotifier(),
     redirect: (context, state) {
-      final authProvider = Provider.of<AuthStateProvider>(context, listen: false);
-      final isLoggedIn = authProvider.user != null;
+      final bool isLoggedIn = Supabase.instance.client.auth.currentSession != null;
 
       final goingToProtectedArea = state.uri.toString().startsWith('/create-post') ||
           state.uri.toString().startsWith('/edit-post');
@@ -58,4 +58,12 @@ class AppRouter {
       ),
     ],
   );
+}
+
+class _AuthStateNotifier extends ChangeNotifier {
+  _AuthStateNotifier() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      notifyListeners();
+    });
+  }
 }
