@@ -96,7 +96,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
 
     if (success && mounted) {
-      context.pop(true);
+      // 👈 FIX: Explicitly route back to the feed instead of popping the stack
+      context.go('/');
     } else if (mounted) {
       setState(() {
         _isLoading = false;
