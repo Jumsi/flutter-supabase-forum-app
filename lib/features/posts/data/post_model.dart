@@ -47,10 +47,9 @@ class PostModel {
     return {
       'title': title,
       'content': content,
-      'username': authorName, // UPDATED: Changed from 'author_name' to 'username'
+      'username': authorName,
       'user_id': userId,
       'image_urls': imageUrls,
-      // Omitted 'comments_count', 'id', and 'created_at' as Supabase handles IDs, timestamps, and relational counts
     };
   }
 }

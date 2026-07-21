@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../reddit_post_card.dart';
 import '../data/post_model.dart';
-import '../providers/posts_provider.dart'; // Adjust path based on your exact file structure
+import '../providers/posts_provider.dart';
 
 class PostsFeedScreen extends StatefulWidget {
   const PostsFeedScreen({super.key});
@@ -108,7 +108,6 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                   onPressed: isUpdating ? null : () async {
                     setDialogState(() => isUpdating = true);
                     try {
-                      // Directly updating title and body via client, then refreshing global provider state
                       await _supabase.from('posts').update({
                         'title': titleController.text.trim(),
                         'content': contentController.text.trim(),
@@ -153,7 +152,6 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () => postsProvider.refreshPosts(),
           ),
-          // UPDATED: Dynamic Auth Actions for Public and Private users
           if (userId != null) ...[
             IconButton(
               icon: const Icon(Icons.logout_rounded, color: Colors.redAccent),
@@ -189,7 +187,6 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
               controller: _scrollController, // Attach the pagination controller
               itemCount: posts.length + (postsProvider.hasMore ? 1 : 0),
               itemBuilder: (context, index) {
-                // Render a pagination spinner at the bottom slot if more entries exist
                 if (index == posts.length) {
                   return const Padding(
                     padding: EdgeInsets.all(16.0),
@@ -197,7 +194,6 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                   );
                 }
 
-                // Clean architecture: Post data is already structured inside a PostModel!
                 final post = posts[index];
                 final isOwner = post.userId == userId;
 

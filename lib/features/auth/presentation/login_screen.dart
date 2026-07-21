@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../posts/presentation/posts_feed_screen.dart'; // Route to your modernized feed
-import 'register_screen.dart'; // Route to register screen
+import '../../posts/presentation/posts_feed_screen.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,10 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
       if (response.user != null) {
         if (!mounted) return;
 
-        // Success! Direct navigation to the modernized Reddit feed
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const PostsFeedScreen()),
-              (route) => false, // Clear login screen stack
+              (route) => false,
         );
       }
     } on AuthException catch (error) {

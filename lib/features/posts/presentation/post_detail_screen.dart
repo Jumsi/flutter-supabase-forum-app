@@ -47,7 +47,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _isLoadingComments = true;
   bool _isSubmittingComment = false;
 
-  // NOTE: Replace 'images' with your actual Supabase Storage bucket name
   final String _storageBucket = 'images';
 
   @override
@@ -115,7 +114,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   String _getStoragePathFromUrl(String url) {
-    // Extracts the folder/filename from the full public URL for deletion
     final uri = Uri.parse(url);
     final pathSegments = uri.pathSegments;
     final bucketIndex = pathSegments.indexOf(_storageBucket);
@@ -146,7 +144,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         'user_id': user?.id,
         'username': userNickname,
         'content': commentText,
-        'image_urls': imageUrls, // Save images to database
+        'image_urls': imageUrls,
       });
 
       await _supabase

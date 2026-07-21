@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:image_picker/image_picker.dart'; // Replaced dart:io with this for Web support
+import 'package:image_picker/image_picker.dart';
 import '../data/post_model.dart';
 import '../data/post_repository.dart';
 
@@ -58,8 +58,8 @@ class PostsProvider extends ChangeNotifier {
   Future<bool> addNewPost({
     required String title,
     required String content,
-    required List<XFile> imageFiles, // UPDATED: Now uses XFile to prevent Web crashes
-    required String authorName,      // UPDATED: Accepts authorName directly from the UI
+    required List<XFile> imageFiles,
+    required String authorName,
   }) async {
     _isUploading = true;
     _errorMessage = null;
@@ -72,12 +72,11 @@ class PostsProvider extends ChangeNotifier {
       final user = Supabase.instance.client.auth.currentUser;
       final userId = user?.id ?? 'anonymous';
 
-      // Removed the manual emailPrefix calculation since the UI handles the naming logic now
       final newPost = PostModel(
         id: '',
         title: title,
         content: content,
-        authorName: authorName, // Uses the parameter directly
+        authorName: authorName,
         userId: userId,
         imageUrls: uploadedUrls,
         commentsCount: 0,

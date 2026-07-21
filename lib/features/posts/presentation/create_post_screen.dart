@@ -96,7 +96,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
 
     if (success && mounted) {
-      context.pop(true); // go_router way to pop and trigger feed refresh
+      context.pop(true);
     } else if (mounted) {
       setState(() {
         _isLoading = false;
