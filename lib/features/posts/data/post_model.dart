@@ -20,6 +20,17 @@ class PostModel {
   });
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
+    // Safely extract comment count whether it's a flat count or a nested relation count
+    int parsedCommentCount = 0;
+    if (json['comments_count'] is int) {
+      parsedCommentCount = json['comments_count'];
+    } else if (json['comments'] is List && (json['comments'] as List).isNotEmpty) {
+      final firstComment = (json['comments'] as List).first;
+      if (firstComment is Map && firstComment['count'] is int) {
+        parsedCommentCount = firstComment['count'];
+      }
+    }
+
     return PostModel(
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? '',
@@ -28,7 +39,7 @@ class PostModel {
       userId: json['user_id'] ?? '',
       imageUrls: List<String>.from(json['image_urls'] ?? []),
       createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
-      commentsCount: json['comments_count'] is int ? json['comments_count'] : 0,
+      commentsCount: parsedCommentCount,
     );
   }
 
@@ -36,10 +47,10 @@ class PostModel {
     return {
       'title': title,
       'content': content,
-      'author_name': authorName,
+      'username': authorName, // UPDATED: Changed from 'author_name' to 'username'
       'user_id': userId,
       'image_urls': imageUrls,
-      'comments_count': commentsCount,
+      // Omitted 'comments_count', 'id', and 'created_at' as Supabase handles IDs, timestamps, and relational counts
     };
   }
 }

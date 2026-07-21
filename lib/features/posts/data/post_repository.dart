@@ -36,8 +36,8 @@ class PostRepository {
       final fileExt = image.name.split('.').last;
       final fileName = '${DateTime.now().millisecondsSinceEpoch}_${image.name}';
 
-      // 2. Upload file bytes to the 'posts' storage bucket using uploadBinary
-      await _supabase.storage.from('posts').uploadBinary(
+      // 2. Upload file bytes to the 'post_images' storage bucket using uploadBinary
+      await _supabase.storage.from('post_images').uploadBinary(
         fileName,
         bytes,
         fileOptions: FileOptions(
@@ -47,8 +47,8 @@ class PostRepository {
         ),
       );
 
-      // 3. Extract public web link
-      final String publicUrl = _supabase.storage.from('posts').getPublicUrl(fileName);
+      // 3. Extract public web link from 'post_images'
+      final String publicUrl = _supabase.storage.from('post_images').getPublicUrl(fileName);
       imageUrls.add(publicUrl);
     }
 
