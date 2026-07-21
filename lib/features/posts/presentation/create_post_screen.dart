@@ -96,8 +96,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
 
     if (success && mounted) {
-      // 👈 FIX: Explicitly route back to the feed instead of popping the stack
-      context.go('/');
+      // 1. Forcefully clear any weird browser history stack
+      while (context.canPop()) {
+        context.pop();
+      }
+      // 2. Replace the current route entirely instead of just "going" to it
+      context.replace('/');
     } else if (mounted) {
       setState(() {
         _isLoading = false;
