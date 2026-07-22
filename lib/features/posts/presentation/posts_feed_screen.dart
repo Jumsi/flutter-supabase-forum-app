@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../reddit_post_card.dart';
 import '../data/post_model.dart';
 import '../providers/posts_provider.dart';
+import 'edit_post_dialog.dart';
 
 class PostsFeedScreen extends StatefulWidget {
   const PostsFeedScreen({super.key});
@@ -43,6 +44,26 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
     }
   }
 
+  // Helper method to format the timestamp into "6h ago", "2d ago", etc.
+  String _getTimeAgo(DateTime? date) {
+    if (date == null) return 'Just now';
+    final difference = DateTime.now().difference(date);
+
+    if (difference.inDays >= 365) {
+      return '${(difference.inDays / 365).floor()}y ago';
+    } else if (difference.inDays >= 30) {
+      return '${(difference.inDays / 30).floor()}mo ago';
+    } else if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
   Future<void> _deletePost(String postId) async {
     try {
       await context.read<PostsProvider>().removePost(postId);
@@ -70,66 +91,6 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showEditDialog(PostModel post) {
-    final titleController = TextEditingController(text: post.title);
-    final contentController = TextEditingController(text: post.content);
-    bool isUpdating = false;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit Post'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(labelText: 'Title'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: contentController,
-                      decoration: const InputDecoration(labelText: 'Content'),
-                      maxLines: 4,
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => context.pop(), child: const Text('Cancel')),
-                ElevatedButton(
-                  onPressed: isUpdating ? null : () async {
-                    setDialogState(() => isUpdating = true);
-                    try {
-                      await _supabase.from('posts').update({
-                        'title': titleController.text.trim(),
-                        'content': contentController.text.trim(),
-                      }).eq('id', post.id);
-
-                      if (!mounted) return;
-                      context.pop();
-                      context.read<PostsProvider>().refreshPosts();
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post updated successfully!')));
-                    } catch (error) {
-                      setDialogState(() => isUpdating = false);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $error')));
-                    }
-                  },
-                  child: isUpdating
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Save'),
-                ),
-              ],
-            );
-          }
       ),
     );
   }
@@ -184,7 +145,7 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
             constraints: const BoxConstraints(maxWidth: 600),
             padding: const EdgeInsets.symmetric(horizontal: 12.0),
             child: ListView.builder(
-              controller: _scrollController, // Attach the pagination controller
+              controller: _scrollController,
               itemCount: posts.length + (postsProvider.hasMore ? 1 : 0),
               itemBuilder: (context, index) {
                 if (index == posts.length) {
@@ -202,7 +163,8 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                     RedditPostCard(
                       category: 'general',
                       author: post.authorName,
-                      timeAgo: 'Just now',
+                      // 👈 FIX: Calculate accurate time dynamically instead of hardcoding
+                      timeAgo: _getTimeAgo(post.createdAt),
                       title: post.title,
                       bodyPreview: post.content,
                       commentCount: post.commentsCount,
@@ -221,7 +183,10 @@ class _PostsFeedScreenState extends State<PostsFeedScreen> {
                           icon: Icon(Icons.more_horiz, color: isDark ? Colors.white54 : Colors.black54),
                           onSelected: (value) {
                             if (value == 'edit') {
-                              _showEditDialog(post);
+                              showDialog(
+                                context: context,
+                                builder: (context) => EditPostDialog(post: post),
+                              );
                             } else if (value == 'delete') {
                               _showDeleteDialog(post);
                             }
